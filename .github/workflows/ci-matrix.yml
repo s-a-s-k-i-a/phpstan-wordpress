@@ -1,0 +1,60 @@
+# Temporary fork-only workflow: mirrors .travis.yml, which does not run on forks.
+name: CI matrix (mirror of .travis.yml)
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["7.4", "8.0", "8.1", "8.2", "8.3", "8.4"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+      - run: composer validate --strict
+      - run: composer update --no-interaction
+      - name: Syntax
+        run: |
+          if [ "${{ matrix.php }}" = "7.4" ]; then
+            composer test:syntax -- --no-progress --exclude tests/data/hook-callback-named-args.php --exclude tests/data/wp-parse-args-named-args.php
+          else
+            composer test:syntax -- --no-progress
+          fi
+      - run: composer test:phpunit -- --verbose
+      - run: composer test:cs -- -s
+      - run: composer test:phpstan -- --ansi --no-progress
+  lowest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "7.4"
+          coverage: none
+      - run: composer update --no-interaction --prefer-lowest
+      - run: composer update --no-interaction --with-all-dependencies szepeviktor/phpcs-psr-12-neutron-hybrid-ruleset 'php-stubs/wordpress-stubs:^6.1'
+      - run: composer test:phpunit -- --verbose
+      - run: composer test:phpstan -- --ansi --no-progress
+  typos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          mkdir -p "${HOME}/typos"
+          wget --progress=dot:mega --directory-prefix="${HOME}/typos" "https://github.com/crate-ci/typos/releases/download/v1.36.2/typos-v1.36.2-x86_64-unknown-linux-musl.tar.gz"
+          tar -xzvf "${HOME}/typos/typos-v1.36.2-x86_64-unknown-linux-musl.tar.gz" -C "${HOME}/typos" ./typos
+          "${HOME}/typos/typos"
+  exported-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          git rm -q --cached -r .github
+          git -c user.name=ci -c user.email=ci@example.invalid commit -q -m "drop ci workflow for archive check"
+          EXPECTED="LICENSE,README.md,bootstrap.php,composer.json,extension.neon"
+          CURRENT="$(git archive HEAD | tar --list --exclude="src" --exclude="src/*" | paste --serial --delimiters=",")"
+          echo "CURRENT =${CURRENT}"; echo "EXPECTED=${EXPECTED}"
+          test "${CURRENT}" = "${EXPECTED}"
